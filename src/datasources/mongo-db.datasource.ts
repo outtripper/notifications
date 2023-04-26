@@ -2,12 +2,9 @@ import {inject, lifeCycleObserver, LifeCycleObserver} from '@loopback/core';
 import {juggler} from '@loopback/repository';
 
 const config = {
-  name: 'mongodb',
+  name: 'MongoDB',
   connector: 'mongodb',
-  url: 'mongodb://localhost:27017/pami',
-  host: 'localhost',
-  port: 27017,
-  database: 'pami',
+  url: process.env.MONGO_URI, // 'mongodb://localhost:27017/authentication',
   useNewUrlParser: true,
 };
 
