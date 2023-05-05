@@ -3,6 +3,7 @@ import {FilterExcludingWhere, repository} from '@loopback/repository';
 import {
   get,
   getModelSchemaRef,
+  HttpErrors,
   param,
   post,
   put,
@@ -40,13 +41,25 @@ export class NotificationController {
       },
     })
     notification: Omit<Notification, '_id'>,
-  ): Promise<Notification> {
-    const token = this.request.headers.authorization?.split(' ')[1];
-    if (!token) throw new Error('Token not found');
-    jwt.verify(token, process.env.JWT_SECRET as string, err => {
-      if (err) throw new Error('Invalid token');
-    });
-    return this.notificationRepository.create(notification);
+  ): Promise<ApiResponse<Notification>> {
+    try {
+      const token = this.request.headers.authorization?.split(' ')[1];
+      if (!token) throw new HttpErrors.Unauthorized('Token not found');
+      jwt.verify(token, process.env.JWT_SECRET as string, err => {
+        if (err) throw new HttpErrors.Unauthorized('Invalid token');
+      });
+      const createdNotification = await this.notificationRepository.create(
+        notification,
+      );
+      return {
+        statusCode: 200,
+        ok: true,
+        message: 'Notification created',
+        data: createdNotification,
+      };
+    } catch (error) {
+      throw new HttpErrors.InternalServerError(error.message);
+    }
   }
 
   @get('/notifications')
@@ -63,9 +76,9 @@ export class NotificationController {
   })
   async findUserByDestinataryAndToken(): Promise<ApiResponse<Notification[]>> {
     const token = this.request.headers.authorization?.split(' ')[1];
-    if (!token) throw new Error('Token not found');
+    if (!token) throw new HttpErrors.Unauthorized('Token not found');
     jwt.verify(token, process.env.JWT_SECRET as string, err => {
-      if (err) throw new Error('Invalid token');
+      if (err) throw new HttpErrors.Unauthorized('Invalid token');
     });
     const decoded = jwt.decode(token, {complete: true}) as unknown as {
       email: string;
@@ -73,18 +86,19 @@ export class NotificationController {
       roles: string[];
       username: string;
     };
-    if (!decoded) throw new Error('Invalid token');
+    if (!decoded) throw new HttpErrors.Unauthorized('Invalid token');
     const notifications = await this.notificationRepository.find({
       where: {
         destinatary: decoded.username,
       },
     });
     if (!notifications || notifications.length === 0)
-      throw new Error('No notifications found');
+      throw new HttpErrors.NotFound('No notifications found');
 
     return {
       ok: true,
       statusCode: 200,
+      message: 'Notifications found',
       data: notifications,
     };
   }
@@ -102,22 +116,60 @@ export class NotificationController {
     @param.path.string('id') id: string,
     @param.filter(Notification, {exclude: 'where'})
     filter?: FilterExcludingWhere<Notification>,
-  ): Promise<Notification> {
-    return this.notificationRepository.findById(id, filter);
+  ): Promise<ApiResponse<Notification>> {
+    try {
+      const foundNotification = this.notificationRepository.findById(
+        id,
+        filter,
+      );
+      return {
+        statusCode: 200,
+        ok: true,
+        message: 'Notification found',
+        data: foundNotification,
+      };
+    } catch (error) {
+      throw new HttpErrors.InternalServerError(error.message);
+    }
   }
 
   @put('/notifications/{id}')
   @response(204, {
     description: 'Notification PUT success',
   })
-  async replaceById(@param.path.string('id') id: string): Promise<void> {
-    const token = this.request.headers.authorization?.split(' ')[1];
-    if (!token) throw new Error('Token not found');
-    jwt.verify(token, process.env.JWT_SECRET as string, err => {
-      if (err) throw new Error('Invalid token');
-    });
-    await this.notificationRepository.updateById(id, {
-      readAt: Date.now(),
-    });
+  async replaceById(
+    @param.path.string('id') id: string,
+  ): Promise<ApiResponse<Notification>> {
+    try {
+      const token = this.request.headers.authorization?.split(' ')[1];
+      if (!token) throw new HttpErrors.Unauthorized('Token not found');
+      jwt.verify(token, process.env.JWT_SECRET as string, err => {
+        if (err) throw new HttpErrors.Unauthorized('Invalid token');
+      });
+      const decoded = jwt.decode(token, {complete: true}) as unknown as {
+        email: string;
+        canonicalName: string;
+        roles: string[];
+        username: string;
+      };
+      if (!decoded) throw new HttpErrors.Unauthorized('Invalid token');
+      const foundNotification = await this.notificationRepository.findById(id);
+      if (!foundNotification)
+        throw new HttpErrors.NotFound('Notification not found');
+      await this.notificationRepository.updateById(id, {
+        readAt: Date.now(),
+      });
+      return {
+        statusCode: 204,
+        ok: true,
+        message: 'Notification updated',
+        data: {
+          ...foundNotification,
+          readAt: Date.now(),
+        },
+      };
+    } catch (error) {
+      throw new HttpErrors.InternalServerError(error.message);
+    }
   }
 }
