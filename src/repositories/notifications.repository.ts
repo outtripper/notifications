@@ -1,14 +1,16 @@
 import {inject} from '@loopback/core';
 import {DefaultCrudRepository} from '@loopback/repository';
-import {MongoDbDataSource} from '../datasources';
+import {PostgresDataSource} from '../datasources';
 import {Notification, NotificationRelations} from '../models';
 
-export class NotificationRepository extends DefaultCrudRepository<
+export class NotificationsRepository extends DefaultCrudRepository<
   Notification,
   typeof Notification.prototype._id,
   NotificationRelations
 > {
-  constructor(@inject('datasources.mongodb') dataSource: MongoDbDataSource) {
+  constructor(
+    @inject('datasources.postgres') dataSource: PostgresDataSource,
+  ) {
     super(Notification, dataSource);
   }
 }

@@ -1,1 +1,2 @@
-export * from './notification.repository';
+export * from './notifications.repository';
+export * from './profile.repository';

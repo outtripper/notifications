@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import {inject} from '@loopback/core';
 import {FilterExcludingWhere, repository} from '@loopback/repository';
 import {
@@ -15,13 +16,15 @@ import {
 import jwt from 'jsonwebtoken';
 import {ApiResponse} from '../@types';
 import {Notification} from '../models';
-import {NotificationRepository} from '../repositories';
+import {NotificationsRepository, ProfileRepository} from '../repositories';
 
 export class NotificationController {
   constructor(
     @inject(RestBindings.Http.REQUEST) private request: Request,
-    @repository(NotificationRepository)
-    public notificationRepository: NotificationRepository,
+    @repository(NotificationsRepository)
+    public notificationRepository: NotificationsRepository,
+    @repository(ProfileRepository)
+    public profileModel: ProfileRepository,
   ) {}
 
   @post('/notifications')
@@ -33,14 +36,31 @@ export class NotificationController {
     @requestBody({
       content: {
         'application/json': {
-          schema: getModelSchemaRef(Notification, {
-            title: 'NewNotification',
-            exclude: ['_id'],
-          }),
+          schema: {
+            type: 'object',
+            properties: {
+              destinataries: {
+                type: 'array',
+                items: {
+                  type: 'string',
+                },
+              },
+              msg: {
+                type: 'string',
+              },
+              tenant: {
+                type: 'number',
+              },
+            },
+          },
         },
       },
     })
-    notification: Omit<Notification, '_id'>,
+    body: {
+      destinataries: string[];
+      msg: string;
+      tenant: number;
+    },
   ): Promise<ApiResponse<Notification>> {
     try {
       const token = this.request.headers.authorization?.split(' ')[1];
@@ -48,9 +68,15 @@ export class NotificationController {
       jwt.verify(token, process.env.JWT_SECRET as string, err => {
         if (err) throw new HttpErrors.Unauthorized('Invalid token');
       });
-      const createdNotification = await this.notificationRepository.create(
-        notification,
-      );
+      const createdNotification = await this.notificationRepository.create({
+        destinataries: JSON.stringify(body.destinataries)
+          .replace('[', '{')
+          .replace(']', '}') as unknown as string[],
+        msg: body.msg,
+        tenant: body.tenant,
+        profilesThatRead: '{}' as unknown as number[],
+      });
+
       return {
         statusCode: 200,
         ok: true,
@@ -74,32 +100,46 @@ export class NotificationController {
       },
     },
   })
-  async findUserByDestinataryAndToken(): Promise<ApiResponse<Notification[]>> {
+  async findNotifications(): Promise<ApiResponse<Notification[]>> {
     const token = this.request.headers.authorization?.split(' ')[1];
     if (!token) throw new HttpErrors.Unauthorized('Token not found');
     jwt.verify(token, process.env.JWT_SECRET as string, err => {
       if (err) throw new HttpErrors.Unauthorized('Invalid token');
     });
-    const decoded = jwt.decode(token, {complete: true}) as unknown as {
+    const decoded = jwt.decode(token) as unknown as {
       email: string;
       canonicalName: string;
       roles: string[];
       username: string;
+      id: number;
     };
-    if (!decoded) throw new HttpErrors.Unauthorized('Invalid token');
-    const notifications = await this.notificationRepository.find({
+    console.log(decoded);
+    const profile = await this.profileModel.findOne({
       where: {
-        destinatary: decoded.username,
+        user: decoded.id,
       },
     });
+    if (!profile) {
+      throw new HttpErrors.NotFound('Profile not found');
+    }
+    if (!decoded) throw new HttpErrors.Unauthorized('Invalid token');
+    const notifications = await this.notificationRepository.find();
     if (!notifications || notifications.length === 0)
       throw new HttpErrors.NotFound('No notifications found');
+    const queriedNotifications = [];
+    for (const role of decoded.roles) {
+      for (const notification of notifications) {
+        if (notification.destinataries.includes(role)) {
+          queriedNotifications.push(notification);
+        }
+      }
+    }
 
     return {
       ok: true,
       statusCode: 200,
       message: 'Notifications found',
-      data: notifications,
+      data: queriedNotifications,
     };
   }
 
@@ -118,10 +158,13 @@ export class NotificationController {
     filter?: FilterExcludingWhere<Notification>,
   ): Promise<ApiResponse<Notification>> {
     try {
-      const foundNotification = this.notificationRepository.findById(
+      const foundNotification = await this.notificationRepository.findById(
         id,
         filter,
       );
+      if (!foundNotification) {
+        throw new HttpErrors.NotFound('Notification not found');
+      }
       return {
         statusCode: 200,
         ok: true,
@@ -146,26 +189,55 @@ export class NotificationController {
       jwt.verify(token, process.env.JWT_SECRET as string, err => {
         if (err) throw new HttpErrors.Unauthorized('Invalid token');
       });
-      const decoded = jwt.decode(token, {complete: true}) as unknown as {
+      const decoded = jwt.decode(token, {complete: true});
+      const payload = decoded?.payload as unknown as {
         email: string;
         canonicalName: string;
         roles: string[];
         username: string;
+        id: number;
       };
       if (!decoded) throw new HttpErrors.Unauthorized('Invalid token');
       const foundNotification = await this.notificationRepository.findById(id);
       if (!foundNotification)
         throw new HttpErrors.NotFound('Notification not found');
-      await this.notificationRepository.updateById(id, {
-        readAt: Date.now(),
-      });
+      if (foundNotification.profilesThatRead.length === 0) {
+        console.log(
+          'Saving',
+          JSON.stringify([payload.id])
+            .replace('[', '{')
+            .replace(']', '}') as unknown as number[],
+        );
+        await this.notificationRepository.updateById(id, {
+          profilesThatRead: JSON.stringify([payload.id])
+            .replace('[', '{')
+            .replace(']', '}') as unknown as number[],
+        });
+        return {
+          statusCode: 204,
+          ok: true,
+          message: 'Notification updated',
+          data: {
+            ...foundNotification,
+          },
+        };
+      } else {
+        await this.notificationRepository.updateById(id, {
+          profilesThatRead: JSON.stringify([
+            ...foundNotification.profilesThatRead,
+            payload.id,
+          ])
+            .replace('[', '{')
+            .replace(']', '}') as unknown as number[],
+        });
+      }
+
       return {
         statusCode: 204,
         ok: true,
         message: 'Notification updated',
         data: {
           ...foundNotification,
-          readAt: Date.now(),
         },
       };
     } catch (error) {

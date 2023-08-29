@@ -1,6 +1,8 @@
 import {Entity, model, property} from '@loopback/repository';
 
-@model({settings: {strict: false}})
+@model({
+  settings: {postgresql: {schema: 'public', table: 'notifications'}},
+})
 export class Notification extends Entity {
   @property({
     type: 'string',
@@ -10,16 +12,17 @@ export class Notification extends Entity {
   _id?: string;
 
   @property({
-    type: 'string',
+    type: 'number',
     required: true,
+    default: () => Date.now(),
   })
-  tenant: string;
+  iat: number;
 
   @property({
     type: 'number',
     required: true,
   })
-  iat: number;
+  tenant: number;
 
   @property({
     type: 'string',
@@ -31,13 +34,14 @@ export class Notification extends Entity {
     type: 'string',
     required: true,
   })
-  destinatary: string;
+  destinataries: string[];
 
   @property({
-    type: 'number',
-    required: false,
+    type: 'string',
+    required: true,
+    default: () => [],
   })
-  readAt: number;
+  profilesThatRead: number[];
 
   // Define well-known properties here
 
