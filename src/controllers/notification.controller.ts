@@ -113,7 +113,6 @@ export class NotificationController {
       username: string;
       id: number;
     };
-    console.log(decoded);
     const profile = await this.profileModel.findOne({
       where: {
         user: decoded.id,
@@ -129,7 +128,7 @@ export class NotificationController {
     const queriedNotifications = [];
     for (const role of decoded.roles) {
       for (const notification of notifications) {
-        if (notification.destinataries.includes(role)) {
+        if (notification.destinataries.includes(role) || role === 'admin') {
           queriedNotifications.push(notification);
         }
       }
